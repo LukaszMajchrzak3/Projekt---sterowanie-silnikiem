@@ -1,0 +1,2 @@
+../Core/Src/aio.c:36:7:VOLTAGE_DIVIDER_Read_R_DOWM	16	static
+../Core/Src/aio.c:48:7:VOLTAGE_DIVIDER_Read_R_UP	16	static

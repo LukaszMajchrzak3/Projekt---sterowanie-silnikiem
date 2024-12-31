@@ -28,11 +28,19 @@
 #include "LCD1602.h"
 #include "aio.h"
 #include<stdio.h>
+#include <math.h>
 
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+
+typedef struct {
+  float Amplitude;  /* mV  */
+  float Frequency;  /* mV  */
+  float SampleTime; /* s   */
+  float PWM;
+} PWM_Handle_TypeDef;
 
 /* USER CODE END PTD */
 
@@ -52,7 +60,6 @@
 int pot1_mV = 0;
 int pot1_mV_filtered = 0;
 int previous_value = 0;
-int zmienna=0;
 uint16_t prev_period = 0;
 uint16_t freq = 0;
 uint16_t cur_period = 0;
@@ -63,6 +70,7 @@ int count_to_clear_lcd = 0;
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
+
 
 /* USER CODE END PFP */
 
@@ -117,6 +125,7 @@ int main(void)
   MX_ADC1_Init();
   MX_TIM8_Init();
   MX_TIM16_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
 
   HAL_TIM_Base_Start(&htim3);
@@ -124,17 +133,9 @@ int main(void)
   HAL_TIM_Base_Start(&htim8);
 
   lcd_init ();
-/*  lcd_put_cur(0, 0);
-  lcd_send_string("HELLO ");
-  lcd_send_string("WORLD ");
-  lcd_send_string("FROM");
 
-  lcd_put_cur(1, 0);
-  lcd_send_string("CONTROLLERS TECH");*/
-
-
-  //HAL_Delay(3000);
-  //lcd_clear();
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
+  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 483); //48.2 wypelnienia
 
   /* USER CODE END 2 */
 
@@ -199,7 +200,7 @@ int main(void)
 	  //uart_buf_len = sprintf(uart_buf, "%u Hz\r\n",cur_period);
 	  //HAL_UART_Transmit(&huart2, (uint8_t*)uart_buf, uart_buf_len, 1000);
 
-	  DelayUS(7100/2); //142000
+	  //DelayUS(7100/2); //142000
 
 
     /* USER CODE END WHILE */
@@ -249,11 +250,12 @@ void SystemClock_Config(void)
   }
   PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USART2|RCC_PERIPHCLK_TIM16
                               |RCC_PERIPHCLK_TIM8|RCC_PERIPHCLK_ADC12
-                              |RCC_PERIPHCLK_TIM34;
+                              |RCC_PERIPHCLK_TIM2|RCC_PERIPHCLK_TIM34;
   PeriphClkInit.Usart2ClockSelection = RCC_USART2CLKSOURCE_PCLK1;
   PeriphClkInit.Adc12ClockSelection = RCC_ADC12PLLCLK_DIV1;
   PeriphClkInit.Tim16ClockSelection = RCC_TIM16CLK_HCLK;
   PeriphClkInit.Tim8ClockSelection = RCC_TIM8CLK_HCLK;
+  PeriphClkInit.Tim2ClockSelection = RCC_TIM2CLK_HCLK;
   PeriphClkInit.Tim34ClockSelection = RCC_TIM34CLK_HCLK;
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
   {

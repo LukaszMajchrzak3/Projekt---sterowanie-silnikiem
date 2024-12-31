@@ -52,6 +52,12 @@
 int pot1_mV = 0;
 int pot1_mV_filtered = 0;
 int previous_value = 0;
+int zmienna=0;
+uint16_t prev_period = 0;
+uint16_t freq = 0;
+uint16_t cur_period = 0;
+int count_to_clear_lcd = 0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -81,10 +87,11 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-	uint16_t timer_val;
 
 	char uart_buf[50];
 	int uart_buf_len;
+	uint16_t timer_val = 0;
+	int change_operation = 0;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -117,17 +124,17 @@ int main(void)
   HAL_TIM_Base_Start(&htim8);
 
   lcd_init ();
-  lcd_put_cur(0, 0);
+/*  lcd_put_cur(0, 0);
   lcd_send_string("HELLO ");
   lcd_send_string("WORLD ");
   lcd_send_string("FROM");
 
   lcd_put_cur(1, 0);
-  lcd_send_string("CONTROLLERS TECH");
+  lcd_send_string("CONTROLLERS TECH");*/
+
+
   //HAL_Delay(3000);
   //lcd_clear();
-
-  timer_val = 0;
 
   /* USER CODE END 2 */
 
@@ -150,48 +157,49 @@ int main(void)
 		  HAL_Delay(250);
 	  }*/
 //----------------------------------------------------
+
 	  HAL_ADC_Start(&hadc1);
 
 	  if(HAL_ADC_PollForConversion(&hadc1, ADC1_TIMEOUT) == HAL_OK)
 	  {
 		  pot1_mV = ADC_REG2VOLTAGE(HAL_ADC_GetValue(&hadc1));
+	  }
 
-		  if((pot1_mV-previous_value) > 1000)
+	  if((pot1_mV-previous_value) > 1000)
+	  {
+		  if(change_operation == 0)
+		  {
+			  timer_val = __HAL_TIM_GET_COUNTER(&htim16);
+			  change_operation = 1;
+		  }
+		  else if(change_operation == 1)
 		  {
 			  timer_val = __HAL_TIM_GET_COUNTER(&htim16) - timer_val;
-			  previous_value = timer_val;
+			  change_operation = 0;
+			  cur_period = timer_val;
+			  freq = 1000000/cur_period;
+
+			  if(count_to_clear_lcd < 80)
+			  {
+				  count_to_clear_lcd = count_to_clear_lcd + 1;
+			  }
+			  else if(count_to_clear_lcd >= 80)
+			  {
+				  count_to_clear_lcd = 0;
+	  			  lcd_clear();
+				  lcd_put_cur(0, 0);
+				  lcd_send_string("Frequency:");
+				  uart_buf_len = sprintf(uart_buf, "%u Hz",freq);
+				  lcd_send_string(uart_buf);
+			  }
 		  }
-		  timer_val = timer_val;
 	  }
-
-	  //timer_val = __HAL_TIM_GET_COUNTER(&htim16) - timer_val;
-
-	  /*if((pot1_mV > 10000) || (pot1_mV < -10000))
-	  {
-		  pot1_mV_filtered = 0;
-	  }
-	  else
-	  {
-		  pot1_mV_filtered = pot1_mV;
-	  }*/
-
-	  //pot1_mV_filtered = pot1_mV_filtered;
-
-
-/*	  if((pot1_mV-previous_value) > 1000)
-	  {
-		  timer_val = __HAL_TIM_GET_COUNTER(&htim16) - timer_val;
-		  //timer_val = 2;//__HAL_TIM_GET_COUNTER(&htim16);
-		  //uart_buf_len = sprintf(uart_buf, "%u us\r\n",timer_val);
-		  //HAL_UART_Transmit(&huart2, (uint8_t*)uart_buf, uart_buf_len, 1000);
-	  }
-*/
-	  //HAL_Delay(1);
-
 	  previous_value = pot1_mV;
-	  timer_val  = timer_val;
+	  freq=freq;
+	  //uart_buf_len = sprintf(uart_buf, "%u Hz\r\n",cur_period);
+	  //HAL_UART_Transmit(&huart2, (uint8_t*)uart_buf, uart_buf_len, 1000);
 
-	  DelayUS(142000);
+	  DelayUS(7100/2); //142000
 
 
     /* USER CODE END WHILE */

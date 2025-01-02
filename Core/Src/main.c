@@ -63,14 +63,20 @@ uint16_t cur_period = 0;
 //uint16_t vel = 0;
 uint16_t vel = 0;
 int count_to_clear_lcd = 0;
-float ref_vel = 400; //wartosc referencyjna
+float ref_vel = 400; //wartosc referencyjna  - JAK NIE DZIALA ZMIENIC NA FLOAT!!!!!!!!!
 int pwm_level = 400;
-int break_dyn = 0;
+int brake_dyn = 1;
+int en_brake = 0;
 
 int was_reached = 0;
 
 char uart_buf[50];
 int uart_buf_len;
+char led_buf[50];
+int led_buf_len;
+HAL_StatusTypeDef uart2_received_status;
+uint8_t single_message_received[] = {0};
+char single_message_response[30]={0};
 uint16_t timer_val = 0;
 int change_operation = 0;
 int time_acc = 0;
@@ -167,13 +173,48 @@ void pwm_control(int potential, int prev_potential)
 				lcd_put_cur(0, 0);
 				lcd_send_string("Predkosc:");
 				vel = freq*60/4;
-				uart_buf_len = sprintf(uart_buf, "%uRPM",vel);
-				lcd_send_string(uart_buf);
+				uart_buf_len = sprintf(led_buf, "%uRPM",vel);
+				lcd_send_string(led_buf);
+				lcd_put_cur(1, 0);
+				uart_buf_len = sprintf(led_buf, "PWM:%d ",pwm_level/10);
+				lcd_send_string(led_buf);
+				uart_buf_len = sprintf(led_buf, "Ref.:%f",ref_vel);
+				lcd_send_string(led_buf);
 			}
 		}
 	}
 
 	__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 1000.0-pwm_level);
+}
+
+
+void UART_StartReception_IT(void) {
+	char *charTable = (char *)malloc(10 * sizeof(char));
+	if (HAL_UART_Receive_DMA(&huart2, (uint8_t*)single_message_received, strlen("STARTMOTOR;")) == HAL_OK) {
+    	sscanf((char*)single_message_received,"%c%c%c%c%c%c%c%c%c%c;",&charTable[0],&charTable[1],&charTable[2],&charTable[3],&charTable[4],&charTable[5],&charTable[6],&charTable[7],&charTable[8],&charTable[9]);
+    	if((charTable[0] == 'S') & (charTable[1] == 'T') & (charTable[2] == 'A') & (charTable[3] == 'R') & (charTable[4] == 'T') & (charTable[5] == 'M') & (charTable[6] == 'O') & (charTable[7] == 'T') & (charTable[8] == 'O') & (charTable[9] == 'R'))
+    	{
+    		brake_dyn = 0;
+    		en_brake = 0;
+    		sprintf(single_message_response, "Silnik zalaczony!\r\n");
+    		HAL_UART_Transmit(&huart2, (uint8_t*)single_message_response, strlen(single_message_response), 50000);
+    	}
+    	if((charTable[0] == 'B') & (charTable[1] == 'R') & (charTable[2] == 'A') & (charTable[3] == 'K') & (charTable[4] == 'E') & (charTable[5] == '_') & (charTable[6] == 'D') & (charTable[7] == 'N') & (charTable[8] == 'M') & (charTable[9] == 'C'))
+    	{
+    		brake_dyn = 1;
+    		en_brake = 0;
+    		sprintf(single_message_response, "Hamowanie dynamiczne!\r\n");
+        	HAL_UART_Transmit(&huart2, (uint8_t*)single_message_response, strlen(single_message_response), 50000);
+
+    	}
+    	if((charTable[0] == 'C') & (charTable[1] == 'O') & (charTable[2] == 'N') & (charTable[3] == 'T') & (charTable[4] == 'R') & (charTable[5] == '_') & (charTable[6] == 'S') & (charTable[7] == 'T') & (charTable[8] == 'O') & (charTable[9] == 'P'))
+    	{
+    		en_brake = 1;
+    		brake_dyn = 0;
+    		sprintf(single_message_response, "Aktywne hamowanie!\r\n");
+        	HAL_UART_Transmit(&huart2, (uint8_t*)single_message_response, strlen(single_message_response), 50000);
+    	}
+    }
 }
 
 /* USER CODE END 0 */
@@ -226,8 +267,19 @@ int main(void)
   //pwm_level = 1000.0;
 
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
-  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 1000.0-pwm_level); //wypelnienie
-  HAL_GPIO_WritePin(BREAK_DYN_GPIO_Port, BREAK_DYN_Pin, GPIO_PIN_RESET);
+
+  if(brake_dyn == 0)
+  {
+	  //HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
+	  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 1000.0-pwm_level); //wypelnienie
+  }
+  else if(brake_dyn == 1)
+  {
+	  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 1000.0);
+	  HAL_GPIO_WritePin(BRAKE_DYN_GPIO_Port, BRAKE_DYN_Pin, GPIO_PIN_SET);
+  }
+
+  UART_StartReception_IT();
 
   /* USER CODE END 2 */
 
@@ -242,25 +294,57 @@ int main(void)
 		  pot1_mV = ADC_REG2VOLTAGE(HAL_ADC_GetValue(&hadc1));
 	  }
 
+		  if(brake_dyn == 1)
+		  {
+			  HAL_GPIO_WritePin(BRAKE_DYN_GPIO_Port, BRAKE_DYN_Pin, GPIO_PIN_SET);
+			  HAL_GPIO_WritePin(BRAKE_EN_GPIO_Port, BRAKE_EN_Pin, GPIO_PIN_RESET);
+			  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 1000.0-0.0);
+			  if(pot1_mV < 5)
+			  {
+				  lcd_clear();
+				  lcd_put_cur(0, 0);
+				  lcd_send_string("HAMOWANIE");
+				  lcd_put_cur(1, 0);
+				  lcd_send_string("DYNAMICZNE!");
+				  timer_val = 0;
+			  }
+			  HAL_Delay(2);
+		  }
+		  else if(en_brake == 1)
+		  {
+			  HAL_GPIO_WritePin(BRAKE_DYN_GPIO_Port, BRAKE_DYN_Pin, GPIO_PIN_RESET);
+			  HAL_GPIO_WritePin(BRAKE_EN_GPIO_Port, BRAKE_EN_Pin, GPIO_PIN_SET);
+			  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 1000.0-0.0);
+			  if(pot1_mV < 5)
+			  {
+				  lcd_clear();
+				  lcd_put_cur(0, 0);
+				  lcd_send_string("HAMOWANIE");
+				  lcd_put_cur(1, 0);
+				  lcd_send_string("AKTYWNE!");
+				  timer_val = 0;
+			  }
+			  HAL_Delay(2);
+		  }
+		  else if(brake_dyn == 0)
+		  {
+			  HAL_GPIO_WritePin(BRAKE_DYN_GPIO_Port, BRAKE_DYN_Pin, GPIO_PIN_RESET);
+			  HAL_GPIO_WritePin(BRAKE_EN_GPIO_Port, BRAKE_EN_Pin, GPIO_PIN_RESET);
+			  pwm_control(pot1_mV, previous_value);
+			  previous_value = pot1_mV;
+		  }
 
-
-	  if(break_dyn == 1)
+//	  char *charTable = (char *)malloc(10 * sizeof(char));
+//	  uart2_received_status = HAL_UART_Receive(&huart2, (uint8_t*)single_message_received, strlen("STARTMOTOR;"), 50000);
+/*	  if(uart2_received_status == HAL_OK)
 	  {
-		  HAL_GPIO_WritePin(BREAK_DYN_GPIO_Port, BREAK_DYN_Pin, GPIO_PIN_SET);
-		  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 1000.0-0.0);
-		  lcd_clear();
-		  lcd_put_cur(0, 0);
-		  lcd_send_string("HAMOWANIE");
-		  lcd_put_cur(1, 0);
-		  lcd_send_string("DYNAMICZNE!");
+		  sscanf((char*)single_message_received,"%c%c%c%c%c%c%c%c%c%c;",&charTable[0],&charTable[1],&charTable[2],&charTable[3],&charTable[4],&charTable[5],&charTable[6],&charTable[7],&charTable[8],&charTable[9]);
+		  if((charTable[0] == 'S') & (charTable[1] == 'T') & (charTable[2] == 'A') & (charTable[3] == 'R') & (charTable[4] == 'T') & (charTable[5] == 'M') & (charTable[6] == 'O') & (charTable[7] == 'T') & (charTable[8] == 'O') & (charTable[9] == 'R'))
+		  {
+			  brake_dyn = 0;
+		  }
 	  }
-	  else if(break_dyn == 0)
-	  {
-		  HAL_GPIO_WritePin(BREAK_DYN_GPIO_Port, BREAK_DYN_Pin, GPIO_PIN_RESET);
-		  pwm_control(pot1_mV, previous_value);
-		  previous_value = pot1_mV;
-	  }
-
+*/
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -324,6 +408,14 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+	if (huart->Instance == USART2)
+	{
+		UART_StartReception_IT();
+	}
+}
 
 /* USER CODE END 4 */
 

@@ -58,14 +58,22 @@ int previous_value = 0;
 int previous_value2 = 0;
 uint16_t prev_period = 0;
 uint16_t freq = 0;
+//float freq = 0;
 uint16_t cur_period = 0;
 //uint16_t vel = 0;
 uint16_t vel = 0;
 int count_to_clear_lcd = 0;
-float ref_vel = 1100; //wartosc referencyjna
-int pwm_level = 500;
+float ref_vel = 400; //wartosc referencyjna
+int pwm_level = 400;
+int break_dyn = 0;
 
 int was_reached = 0;
+
+char uart_buf[50];
+int uart_buf_len;
+uint16_t timer_val = 0;
+int change_operation = 0;
+int time_acc = 0;
 
 /* USER CODE END PV */
 
@@ -87,6 +95,87 @@ void DelayUS(uint16_t us) {
     while(__HAL_TIM_GET_COUNTER(&htim8) < us);
 }
 
+void pwm_control(int potential, int prev_potential)
+{
+	if((was_reached == 0) & (potential > 2800)) //2500
+	{
+		was_reached = 1;
+	}
+
+	if((was_reached == 1) & (potential < 100) & (prev_potential < 100))
+	{
+		was_reached = 0;
+		if(change_operation == 0)
+		{
+			timer_val = __HAL_TIM_GET_COUNTER(&htim16);
+			change_operation = 1;
+		}
+		else if(change_operation == 1)
+		{
+			timer_val = __HAL_TIM_GET_COUNTER(&htim16) - timer_val;
+			change_operation = 0;
+			cur_period = timer_val;
+			freq = 1000000/cur_period;
+
+			if(count_to_clear_lcd < 60)
+			{
+				count_to_clear_lcd = count_to_clear_lcd + 1;
+				if(fabs(ref_vel-vel) > 260.0)
+				{
+					if(vel <= ref_vel)
+					{
+						pwm_level = pwm_level + 1;
+					}
+					else if(vel > ref_vel)
+					{
+						pwm_level = pwm_level - 1;
+					}
+				}
+				else if((fabs(ref_vel-vel) <= 260.0) & (fabs(ref_vel-vel) > 40.0))
+				{
+					if((count_to_clear_lcd % 5) == 4)
+					{
+						if(vel <= ref_vel)
+						{
+							pwm_level = pwm_level + 1;
+						}
+						else if(vel > ref_vel)
+						{
+							pwm_level = pwm_level - 1;
+						}
+					}
+				}
+				else if(fabs(ref_vel-vel) <= 40.0)
+				{
+					if((count_to_clear_lcd % 40) == 36)
+					{
+						if(vel <= ref_vel)
+						{
+							pwm_level = pwm_level + 1;
+						}
+						else if(vel > ref_vel)
+						{
+							pwm_level = pwm_level - 1;
+						}
+					}
+				}
+			}
+			else if(count_to_clear_lcd >= 60)
+			{
+				count_to_clear_lcd = 0;
+				lcd_clear();
+				lcd_put_cur(0, 0);
+				lcd_send_string("Predkosc:");
+				vel = freq*60/4;
+				uart_buf_len = sprintf(uart_buf, "%uRPM",vel);
+				lcd_send_string(uart_buf);
+			}
+		}
+	}
+
+	__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 1000.0-pwm_level);
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -98,13 +187,7 @@ int main(void)
 
   /* USER CODE BEGIN 1 */
 
-	char uart_buf[50];
-	int uart_buf_len;
-	uint16_t timer_val = 0;
-	int change_operation = 0;
-	int time_acc = 0;
-
-	/* USER CODE END 1 */
+  /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
 
@@ -131,6 +214,7 @@ int main(void)
   MX_TIM8_Init();
   MX_TIM16_Init();
   MX_TIM2_Init();
+  MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
 
   HAL_TIM_Base_Start(&htim3);
@@ -139,10 +223,11 @@ int main(void)
 
   lcd_init ();
 
-  //pwm_level = 600.0;
+  //pwm_level = 1000.0;
 
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
-  //__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 1000.0-pwm_level); //wypelnienie
+  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 1000.0-pwm_level); //wypelnienie
+  HAL_GPIO_WritePin(BREAK_DYN_GPIO_Port, BREAK_DYN_Pin, GPIO_PIN_RESET);
 
   /* USER CODE END 2 */
 
@@ -157,59 +242,24 @@ int main(void)
 		  pot1_mV = ADC_REG2VOLTAGE(HAL_ADC_GetValue(&hadc1));
 	  }
 
-	  if((was_reached == 0) & (pot1_mV > 2500) & (previous_value > 2600)) //2500
+
+
+	  if(break_dyn == 1)
 	  {
-		  was_reached = 1;
-		  if(change_operation == 0)
-		  {
-			  timer_val = __HAL_TIM_GET_COUNTER(&htim16);
-			  change_operation = 1;
-		  }
-		  else if(change_operation == 1)
-		  {
-			  timer_val = __HAL_TIM_GET_COUNTER(&htim16) - timer_val;
-			  change_operation = 0;
-			  cur_period = timer_val;
-			  freq = 1000000/cur_period;
-
-			  if(count_to_clear_lcd < 90)
-			  {
-				  count_to_clear_lcd = count_to_clear_lcd + 1;
-				  if((count_to_clear_lcd % 3) == 2)
-				  {
-					  /*if(vel <= ref_vel)
-					  {
-						  pwm_level = pwm_level + 1;
-					  }
-					  else if(vel > ref_vel)
-					  {
-						  pwm_level = pwm_level - 1;
-					  }*/
-				  }
-			  }
-			  else if(count_to_clear_lcd >= 90)
-			  {
-				  count_to_clear_lcd = 0;
-	  			  lcd_clear();
-				  lcd_put_cur(0, 0);
-				  lcd_send_string("Predkosc:");
-				  vel = freq*60/12;
-				  uart_buf_len = sprintf(uart_buf, "%u RPM",vel);
-				  lcd_send_string(uart_buf);
-			  }
-		  }
+		  HAL_GPIO_WritePin(BREAK_DYN_GPIO_Port, BREAK_DYN_Pin, GPIO_PIN_SET);
+		  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 1000.0-0.0);
+		  lcd_clear();
+		  lcd_put_cur(0, 0);
+		  lcd_send_string("HAMOWANIE");
+		  lcd_put_cur(1, 0);
+		  lcd_send_string("DYNAMICZNE!");
 	  }
-
-	  if((was_reached == 1) & (pot1_mV < 100))
+	  else if(break_dyn == 0)
 	  {
-		  was_reached = 0;
+		  HAL_GPIO_WritePin(BREAK_DYN_GPIO_Port, BREAK_DYN_Pin, GPIO_PIN_RESET);
+		  pwm_control(pot1_mV, previous_value);
+		  previous_value = pot1_mV;
 	  }
-
-	  previous_value2 = previous_value;
-	  previous_value = pot1_mV;
-
-	  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 1000.0-pwm_level);
-
 
     /* USER CODE END WHILE */
 
@@ -256,11 +306,13 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USART2|RCC_PERIPHCLK_TIM16
-                              |RCC_PERIPHCLK_TIM8|RCC_PERIPHCLK_ADC12
-                              |RCC_PERIPHCLK_TIM2|RCC_PERIPHCLK_TIM34;
+  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USART2|RCC_PERIPHCLK_TIM1
+                              |RCC_PERIPHCLK_TIM16|RCC_PERIPHCLK_TIM8
+                              |RCC_PERIPHCLK_ADC12|RCC_PERIPHCLK_TIM2
+                              |RCC_PERIPHCLK_TIM34;
   PeriphClkInit.Usart2ClockSelection = RCC_USART2CLKSOURCE_PCLK1;
   PeriphClkInit.Adc12ClockSelection = RCC_ADC12PLLCLK_DIV1;
+  PeriphClkInit.Tim1ClockSelection = RCC_TIM1CLK_HCLK;
   PeriphClkInit.Tim16ClockSelection = RCC_TIM16CLK_HCLK;
   PeriphClkInit.Tim8ClockSelection = RCC_TIM8CLK_HCLK;
   PeriphClkInit.Tim2ClockSelection = RCC_TIM2CLK_HCLK;

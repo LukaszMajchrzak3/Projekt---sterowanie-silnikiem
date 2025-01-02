@@ -19,6 +19,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "adc.h"
+#include "dma.h"
 #include "tim.h"
 #include "usart.h"
 #include "gpio.h"
@@ -29,18 +30,12 @@
 #include "aio.h"
 #include<stdio.h>
 #include <math.h>
+#include <stdint.h>
 
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-
-typedef struct {
-  float Amplitude;  /* mV  */
-  float Frequency;  /* mV  */
-  float SampleTime; /* s   */
-  float PWM;
-} PWM_Handle_TypeDef;
 
 /* USER CODE END PTD */
 
@@ -60,10 +55,17 @@ typedef struct {
 int pot1_mV = 0;
 int pot1_mV_filtered = 0;
 int previous_value = 0;
+int previous_value2 = 0;
 uint16_t prev_period = 0;
 uint16_t freq = 0;
 uint16_t cur_period = 0;
+//uint16_t vel = 0;
+uint16_t vel = 0;
 int count_to_clear_lcd = 0;
+float ref_vel = 1100; //wartosc referencyjna
+int pwm_level = 500;
+
+int was_reached = 0;
 
 /* USER CODE END PV */
 
@@ -100,7 +102,9 @@ int main(void)
 	int uart_buf_len;
 	uint16_t timer_val = 0;
 	int change_operation = 0;
-  /* USER CODE END 1 */
+	int time_acc = 0;
+
+	/* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
 
@@ -120,6 +124,7 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_USART2_UART_Init();
   MX_TIM3_Init();
   MX_ADC1_Init();
@@ -134,8 +139,10 @@ int main(void)
 
   lcd_init ();
 
+  //pwm_level = 600.0;
+
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
-  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 483); //48.2 wypelnienia
+  //__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 1000.0-pwm_level); //wypelnienie
 
   /* USER CODE END 2 */
 
@@ -143,22 +150,6 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  /*for (int i=0;i<128;i++)
-	  {
-		  lcd_put_cur(row, col);
-
-		  lcd_send_data(i+48);
-
-		  col++;
-
-		  if (col > 15) {row++; col = 0;}
-		  if (row > 1) row=0;
-
-
-		  HAL_Delay(250);
-	  }*/
-//----------------------------------------------------
-
 	  HAL_ADC_Start(&hadc1);
 
 	  if(HAL_ADC_PollForConversion(&hadc1, ADC1_TIMEOUT) == HAL_OK)
@@ -166,8 +157,9 @@ int main(void)
 		  pot1_mV = ADC_REG2VOLTAGE(HAL_ADC_GetValue(&hadc1));
 	  }
 
-	  if((pot1_mV-previous_value) > 1000)
+	  if((was_reached == 0) & (pot1_mV > 2500) & (previous_value > 2600)) //2500
 	  {
+		  was_reached = 1;
 		  if(change_operation == 0)
 		  {
 			  timer_val = __HAL_TIM_GET_COUNTER(&htim16);
@@ -180,27 +172,43 @@ int main(void)
 			  cur_period = timer_val;
 			  freq = 1000000/cur_period;
 
-			  if(count_to_clear_lcd < 80)
+			  if(count_to_clear_lcd < 90)
 			  {
 				  count_to_clear_lcd = count_to_clear_lcd + 1;
+				  if((count_to_clear_lcd % 3) == 2)
+				  {
+					  /*if(vel <= ref_vel)
+					  {
+						  pwm_level = pwm_level + 1;
+					  }
+					  else if(vel > ref_vel)
+					  {
+						  pwm_level = pwm_level - 1;
+					  }*/
+				  }
 			  }
-			  else if(count_to_clear_lcd >= 80)
+			  else if(count_to_clear_lcd >= 90)
 			  {
 				  count_to_clear_lcd = 0;
 	  			  lcd_clear();
 				  lcd_put_cur(0, 0);
-				  lcd_send_string("Frequency:");
-				  uart_buf_len = sprintf(uart_buf, "%u Hz",freq);
+				  lcd_send_string("Predkosc:");
+				  vel = freq*60/12;
+				  uart_buf_len = sprintf(uart_buf, "%u RPM",vel);
 				  lcd_send_string(uart_buf);
 			  }
 		  }
 	  }
-	  previous_value = pot1_mV;
-	  freq=freq;
-	  //uart_buf_len = sprintf(uart_buf, "%u Hz\r\n",cur_period);
-	  //HAL_UART_Transmit(&huart2, (uint8_t*)uart_buf, uart_buf_len, 1000);
 
-	  //DelayUS(7100/2); //142000
+	  if((was_reached == 1) & (pot1_mV < 100))
+	  {
+		  was_reached = 0;
+	  }
+
+	  previous_value2 = previous_value;
+	  previous_value = pot1_mV;
+
+	  __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 1000.0-pwm_level);
 
 
     /* USER CODE END WHILE */

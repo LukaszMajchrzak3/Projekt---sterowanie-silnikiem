@@ -214,6 +214,18 @@ void UART_StartReception_IT(void) {
     		sprintf(single_message_response, "Aktywne hamowanie!\r\n");
         	HAL_UART_Transmit(&huart2, (uint8_t*)single_message_response, strlen(single_message_response), 50000);
     	}
+    	if((charTable[0] == 'V') & (charTable[1] == 'E') & (charTable[2] == 'L') & (charTable[3] == ':') & (charTable[8] == ';') & (charTable[9] == ';'))
+    	{
+    		int num1int = charTable[4] - 48;
+    		int num2int = charTable[5] - 48;
+    		int num3int = charTable[6] - 48;
+    		int num4int = charTable[7] - 48;
+    		int ref_vel_local = 0;
+    		ref_vel_local = num1int*1000 + num2int*100 + num3int*10 + num4int*1;
+    		ref_vel = ref_vel_local;
+    		sprintf(single_message_response, "Nowa predkosc: %f\r\n",ref_vel);
+        	HAL_UART_Transmit(&huart2, (uint8_t*)single_message_response, strlen(single_message_response), 50000);
+    	}
     }
 }
 
